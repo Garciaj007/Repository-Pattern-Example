@@ -46,9 +46,11 @@ namespace repo
 		Repository(Ref<ADataContext<T>> context) : context(context) { context->Load(); }
 		virtual ~Repository() { context->Save(); }
 
+		const std::vector<T>& DANGEROUS_Expose() { return context->dataContext; }
+
 		std::optional<T> GetById(std::string& id)
 		{
-			typename std::vector<T>::iterator found = std::find_if(begin(context->dataContext), end(context->dataContext), [&] (T& item) { return item.id == id; });
+			typename std::vector<T>::iterator found = std::find_if(begin(context->dataContext), end(context->dataContext), [&](T& item) { return item.id == id; });
 			if (found != end(context->dataContext))
 				return *found;
 			return {};
@@ -59,8 +61,8 @@ namespace repo
 			std::optional<T> found = GetById(entity.id);
 			if (found.has_value())
 			{
-				printf("Replacing Entity %s already in Collection", entity.id.c_str());
-				std::remove(begin(context->dataContext), end(context->dataContext), found.value());
+				printf("\nReplacing Entity %s already in Collection", entity.id.c_str());
+				Remove(found.value());
 			}
 			context->dataContext.push_back(entity);
 		}
@@ -75,10 +77,12 @@ namespace repo
 
 		void Remove(T entity)
 		{
-			std::optional<T> found = GetById(entity.id);
-			if (found.has_value())
-				std::remove(begin(context->dataContext), end(context->dataContext), found.value());
+			auto it = std::find(context->dataContext.begin(), context->dataContext.end(), entity);
+			if (it != context->dataContext.end())
+				context->dataContext.erase(it);
 		}
+
+		int Count() { return context->dataContext.size(); }
 	};
 
 	/////////////////////////////////
@@ -100,7 +104,7 @@ namespace repo
 			const auto path = std::filesystem::path("./" + filename);
 			if (!std::filesystem::exists(path))
 			{
-				printf("Path {} does not exist", path.c_str());
+				printf("\nPath %s does not exist", std::filesystem::absolute(path).c_str());
 				return;
 			}
 
@@ -108,8 +112,8 @@ namespace repo
 			nlohmann::json jsonData;
 			i >> jsonData;
 
-			for (auto& element : jsonData ["dataContext"])
-				this->dataContext.push_back(element.get<T>());
+			for (auto& element : jsonData["dataContext"])
+				this->dataContext.push_back(T::from_json(element));
 
 			i.close();
 		}
@@ -118,10 +122,11 @@ namespace repo
 		{
 			const auto path = std::filesystem::path("./" + filename);
 			if (!std::filesystem::exists(path))
-				printf("Create File at Path: %s", path.string().c_str());
+				printf("\nCreate File at Path: %s", path.string().c_str());
 
 			nlohmann::json jsonData;
-			jsonData ["dataContext"] = this->dataContext;
+			for (auto& element : this->dataContext)
+				jsonData["dataContext"].push_back(T::to_json(element));
 			std::ofstream o(path);
 			o << jsonData;
 			o.close();
@@ -132,61 +137,5 @@ namespace repo
 	struct JSONRepository : Repository<T>
 	{
 		JSONRepository(const std::string& filename) :Repository<T>(MakeRef<JSONDataContext<T>>(filename)) {}
-	};
-
-	struct Comparable
-	{
-		std::string id;
-
-		Comparable(const std::string& id) : id(id) {}
-	};
-
-	static bool operator ==(Comparable& lhs, Comparable& rhs)
-	{
-		return lhs.id == rhs.id;
-	}
-
-	static bool operator !=(Comparable& lhs, Comparable& rhs)
-	{
-		return !(lhs == rhs);
-	}
-
-	struct Consumable
-	{
-		std::string id = "";
-		int healthGain = 0;
-		int manaGain = 0;
-		int staminaGain = 0;
-
-		Consumable(const std::string& id, int healthGain, int manaGain, int staminaGain) :
-			id(id),
-			healthGain(healthGain),
-			manaGain(manaGain),
-			staminaGain(staminaGain)
-		{
-		}
-
-		bool operator ==(Consumable& other)
-		{
-			return this->id == other.id;
-		}
-	};
-
-	void to_json(nlohmann::json& j, const Consumable& c)
-	{
-		j = nlohmann::json { {"id", c.id}, {"healthGain", c.healthGain}, {"manaGain", c.manaGain}, {"staminaGain", c.staminaGain} };
-	}
-
-	void from_json(const nlohmann::json& j, Consumable& c)
-	{
-		j.at("id").get_to(c.id);
-		j.at("healthGain").get_to(c.healthGain);
-		j.at("manaGain").get_to(c.id);
-		j.at("id").get_to(c.id);
-	}
-
-	struct Consumables : JSONRepository<Consumable>
-	{
-		Consumables() : JSONRepository<Consumable>("consumables.json") {}
 	};
 }
